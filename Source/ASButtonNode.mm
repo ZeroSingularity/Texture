@@ -41,7 +41,7 @@
     _contentEdgeInsets = UIEdgeInsetsZero;
     _imageAlignment = ASButtonNodeImageAlignmentBeginning;
     self.accessibilityTraits = self.defaultAccessibilityTraits;
-
+    
     [self updateYogaLayoutIfNeeded];
   }
   return self;
@@ -69,7 +69,7 @@
   ASLockScopeSelf();
   if (!_imageNode) {
     _imageNode = [[ASImageNode alloc] init];
-    [_imageNode setLayerBacked:YES];
+    // Intentionally not layer-backing the image node since tintColor may be applied
   }
   return _imageNode;
 }
@@ -129,6 +129,55 @@
   [self.backgroundImageNode setDisplaysAsynchronously:displaysAsynchronously];
   [self.imageNode setDisplaysAsynchronously:displaysAsynchronously];
   [self.titleNode setDisplaysAsynchronously:displaysAsynchronously];
+}
+
+
+- (NSAttributedString *)__updateTitle:(NSAttributedString *)title withForegroundColor:(UIColor *)newColor
+{
+  if (title) {
+    NSMutableAttributedString *mutString = [[NSMutableAttributedString alloc] initWithAttributedString:title];
+    NSRange limit = NSMakeRange(0, _normalAttributedTitle.length);
+    NSRange effectiveRange;
+    UIColor *attributeValue = (UIColor *)[mutString attribute:NSForegroundColorAttributeName atIndex:limit.location effectiveRange:&effectiveRange];
+    if (attributeValue == nil) {
+      [mutString setAttributes:@{ NSForegroundColorAttributeName : newColor } range:limit];
+    }
+
+    return [mutString copy];
+  }
+  return title;
+}
+
+- (void)updateTitleForegroundColor:(UIColor *)newColor
+{
+  if (_normalAttributedTitle) {
+    [self setAttributedTitle:[self __updateTitle:_normalAttributedTitle withForegroundColor:newColor] forState:UIControlStateNormal];
+  }
+
+  if (_highlightedAttributedTitle) {
+    [self setAttributedTitle:[self __updateTitle:_highlightedAttributedTitle withForegroundColor:newColor] forState:UIControlStateHighlighted];
+  }
+  
+  if (_selectedAttributedTitle) {
+    [self setAttributedTitle:[self __updateTitle:_selectedAttributedTitle withForegroundColor:newColor] forState:UIControlStateSelected];
+  }
+  if (_selectedHighlightedAttributedTitle) {
+    [self setAttributedTitle:[self __updateTitle:_selectedHighlightedAttributedTitle withForegroundColor:newColor] forState:UIControlStateSelected | UIControlStateHighlighted];
+  }
+
+  if (_disabledAttributedTitle) {
+    [self setAttributedTitle:[self __updateTitle:_disabledAttributedTitle withForegroundColor:newColor] forState:UIControlStateDisabled];
+  }
+}
+
+- (void)setTintColor:(UIColor *)tintColor
+{
+  if (![self.tintColor isEqual:tintColor]) {
+    [super setTintColor:tintColor];
+    // Forward tint color to underlying image and title nodes to mirror UIButton
+    self.imageNode.tintColor = tintColor;
+    [self updateTitleForegroundColor:tintColor];
+  }
 }
 
 - (void)updateImage
@@ -301,12 +350,17 @@
 #if TARGET_OS_IOS
 - (void)setTitle:(NSString *)title withFont:(UIFont *)font withColor:(UIColor *)color forState:(UIControlState)state
 {
-  NSDictionary *attributes = @{
-    NSFontAttributeName: font ? : [UIFont systemFontOfSize:[UIFont buttonFontSize]],
-    NSForegroundColorAttributeName : color ? : [UIColor blackColor]
-  };
-    
-  NSAttributedString *string = [[NSAttributedString alloc] initWithString:title attributes:attributes];
+  NSMutableDictionary *attributes = [NSMutableDictionary dictionary];
+  attributes[NSFontAttributeName] = font ? : [UIFont systemFontOfSize:[UIFont buttonFontSize]];
+  if (color != nil) {
+    // From apple's documentation: If color is not specified, NSForegroundColorAttributeName will fallback to black
+    // Only set if the color is nonnull
+    attributes[NSForegroundColorAttributeName] = color;
+  } else if (self.tintColor != nil) {
+    attributes[NSForegroundColorAttributeName] = self.tintColor;
+  }
+
+  NSAttributedString *string = [[NSAttributedString alloc] initWithString:title attributes:[attributes copy]];
   [self setAttributedTitle:string forState:state];
 }
 #endif
